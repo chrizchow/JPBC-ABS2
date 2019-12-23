@@ -7,5 +7,5 @@ import java.util.ArrayList;
 public class ABSPrivKeyComp {
     Element Kbase, K0;
     ArrayList<Element> Ku;
-
+    ArrayList<String> attr;
 }
