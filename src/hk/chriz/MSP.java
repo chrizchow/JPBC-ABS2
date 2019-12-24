@@ -122,7 +122,7 @@ public class MSP {
     }
 
     // ======================= Utilities Functions Below =======================
-    public static void elementFromString(Element h, String s)   // FIXME: MSP also using
+    public static void elementFromString(Element h, String s)
             throws NoSuchAlgorithmException {
         MessageDigest md = MessageDigest.getInstance("SHA-1");
         byte[] digest = md.digest(s.getBytes());
