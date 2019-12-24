@@ -7,6 +7,7 @@ Attribute-based Signature (ABS) is a scheme to provide proof of possessions of a
 
 This ABS implementation is based on H. Maji's paper[1] and Sanjeev Kaushik Ramani's NDN-ABS project [2, 3]. For simplicity, this implementation only supported AND operations in the Monotone Span Program (MSP), and at most 10x10 AND matrix is pre-computed as `cheatyMap` to accelerate the encryption process. As a result, only less than or equal to 10 attributes is supported, but I guess it should be good enough for most scenarios.
 
+This project supports both Type A (Symmetric) and Type D (Asymmetric) elliptic curve.
 
 ## Known Issues
 - The attribute array used in `sign()` and `verify()` must follow the same order.
