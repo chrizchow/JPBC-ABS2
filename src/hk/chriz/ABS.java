@@ -7,9 +7,7 @@ import java.math.BigInteger;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 
 public class ABS {
 
@@ -38,10 +36,6 @@ public class ABS {
         mkParam.b = pubParam.Zr.newRandomElement();
         mkParam.c = pubParam.Zr.newRandomElement();
 
-        // Set C = g^c (at the end of P.20):
-        pubParam.C = pubParam.g.duplicate();
-        pubParam.C.powZn(mkParam.c);
-
         // Set h_0 to h_tmax = random in G2:
         pubParam.hi = new ArrayList<>();
         for (int i=0; i<pubParam.tmax+1; i++)   // from 0 to t_max totally t_max+1 items
@@ -49,18 +43,29 @@ public class ABS {
 
         // Set A0 = h0^a0:
         pubParam.A = new ArrayList<>();
-        pubParam.A.add(pubParam.hi.get(0).duplicate().powZn(mkParam.a0));
+        Element h0_a0 = pubParam.hi.get(0).duplicate();
+        h0_a0.powZn(mkParam.a0);
+        pubParam.A.add(h0_a0);
 
         // Set A_1 ~ A_tmax:
         for (int i=1; i<pubParam.hi.size(); i++) {
-            pubParam.A.add(pubParam.hi.get(i).duplicate().powZn(mkParam.a));
+            Element hi_a = pubParam.hi.get(i).duplicate();
+            hi_a.powZn(mkParam.a);
+            pubParam.A.add(hi_a);
         }
 
         // Set B_1 ~ B_tmax:
         pubParam.B = new ArrayList<>();
+        pubParam.B.add(null);   // B_0 is nothing
         for (int i=1; i<pubParam.hi.size(); i++) {
-            pubParam.B.add(pubParam.hi.get(i).duplicate().powZn(mkParam.b));
+            Element hi_b = pubParam.hi.get(i).duplicate();
+            hi_b.powZn(mkParam.b);
+            pubParam.B.add(hi_b);
         }
+
+        // Set C = g^c (at the end of P.20):
+        pubParam.C = pubParam.g.duplicate();
+        pubParam.C.powZn(mkParam.c);
 
         System.out.println("Size of H: "+pubParam.hi.size());
         System.out.println("Size of A: "+pubParam.A.size());
@@ -75,7 +80,8 @@ public class ABS {
         comp.Kbase = pubParam.G1.newRandomElement();
 
         // Calculate K0 = Kbase^(1/a0):
-        Element inv_a0 = mkParam.a0.duplicate().invert();
+        Element inv_a0 = mkParam.a0.duplicate();
+        inv_a0.invert();
         comp.K0 = comp.Kbase.duplicate();
         comp.K0.powZn(inv_a0);
 
@@ -84,13 +90,17 @@ public class ABS {
         comp.attr = new ArrayList<>();
         for (String attr: attrs) {
             // Calculate 1/(a+bu):
-            Element inv_a_bu = pubParam.Zr.newElement();
-            elementFromString(inv_a_bu, attr);  // get hashed attribute (u)
-            inv_a_bu.mul(mkParam.b);            // bu
+            Element hashed = pubParam.Zr.newElement();
+            MSP.elementFromString(hashed, attr);    // get hashed attribute (u)
+            Element inv_a_bu = mkParam.b.duplicate();
+            inv_a_bu.mul(hashed);               // bu
             inv_a_bu.add(mkParam.a);            // a+bu
             inv_a_bu.invert();                  // 1/(a+bu)
-            comp.Ku.add(comp.Kbase.duplicate().powZn(inv_a_bu));     // Kbase^(1/a+bu)
+            Element ku = comp.Kbase.duplicate();
+            ku.powZn(inv_a_bu);                 // Kbase^(1/a+bu)
+            comp.Ku.add(ku);
             comp.attr.add(attr);                // for later reference
+            System.out.println("Attr = "+attr+" ( u = "+hashed+" ) ( Ku = "+ku+" )");
         }
         System.out.println("Secret Key Ku has "+comp.Ku.size()+" elements.");
         return comp;
@@ -103,39 +113,58 @@ public class ABS {
         final int l = msp.M.length;
         final int t = msp.M[0].length;
 
-        // Pick random r0, r1 ... rl:
+        // Pick random r0 ... rl:
         ArrayList<Element> r = new ArrayList<>();
         for (int i=0; i<l+1; i++)
             r.add(pubParam.Zr.newRandomElement());
 
+        // Check if r0 ← Zp* :
+        /*
+        if (r.get(0).toBigInteger().gcd(RR).compareTo(BigInteger.ONE) != 0) {
+            System.err.println("WARNING: r0 is NOT coprime of RR!");
+            System.exit(-1);
+        }
+         */
+
         // Calculate Y and W:
-        comp.Y = privKey.Kbase.duplicate().powZn(r.get(0));
-        comp.W = privKey.K0.duplicate().powZn(r.get(0));
+        comp.Y = privKey.Kbase.duplicate();
+        comp.Y.powZn(r.get(0));
+        comp.W = privKey.K0.duplicate();
+        comp.W.powZn(r.get(0));
 
         // Calculate Si for each l:
         comp.Si = new ArrayList<>();
         comp.Si.add(null);                                    // S0 does not exist
         for (int i=1; i<l+1; i++) {
-            Element cgur = pubParam.C.duplicate();            // C
-            cgur.mul(pubParam.g.duplicate().powZn(msp.mu));   // Cg^µ
+            Element cgur = pubParam.g.duplicate();
+            cgur.powZn(msp.mu);                               // g^µ
+            cgur.mul(pubParam.C);                             // C * g^µ
             cgur.powZn(r.get(i));                             // (Cg^µ)^ri
-            Element kur = privKey.Ku.get(i-1);                // K_u(i)
+            Element kur = privKey.Ku.get(i-1).duplicate();    // K_u(i)
             kur.powZn(r.get(0));                              // K_u(i)^r0
-            comp.Si.add(kur.duplicate().mul(cgur));           // K_u(i)^r0 * Cg^µ)^ri
+            comp.Si.add(kur.mul(cgur));                       // K_u(i)^r0 * (Cg^µ)^ri
+            System.out.println("S"+i+" = "+comp.Si.get(i)+" ( Ku = "+privKey.Ku.get(i-1)+" )");
         }
 
         // Calculate Pj for each t (each item multiply from 1 to l):
         comp.Pj = new ArrayList<>();
-        comp.Pj.add(null);                                                      // P0 does not exist
+        comp.Pj.add(null);                                          // P0 does not exist
         for (int j=1; j<t+1; j++) {
-            Element end = pubParam.G2.newOneElement();
+            Element end = pubParam.G2.newZeroElement();
             for (int i=1; i<l+1; i++) {
-                Element base = pubParam.A.get(j).duplicate();                   // A_j
-                base.mul(pubParam.B.get(i).duplicate().powZn(msp.u.get(i-1)));  // A_j * B_j^(u(i))
-                Element exp = r.get(i).duplicate().mul(msp.M[i-1][j-1]);        // M_ij * r_i
-                end.mul(base.powZn(exp));                                       // (A_j * B_j^(u(i)))^(M_ij * r_i)
+                Element base = pubParam.A.get(j).duplicate();       // A_j
+                Element bj_ui = pubParam.B.get(j).duplicate();      // B_j
+                bj_ui.powZn(msp.u.get(i-1));                        // B_j^(u(i))
+                base.mul(bj_ui);                                    // A_j * B_j^(u(i))
+                Element exp = r.get(i).duplicate();                 // r_i
+                exp.mul(msp.M[i-1][j-1]);                           // M_ij * r_i
+                base.powZn(exp);                                    // (A_j * B_j^(u(i)))^(M_ij * r_i)
+                end.mul(base);                                      // Π (A_j * B_j^(u(i)))^(M_ij * r_i)
+                System.out.printf("M[%d][%d]=%d , ", (i-1), (j-1), msp.M[i-1][j-1]);
+                System.out.println("u("+i+") = "+msp.u.get(i-1));
             }
             comp.Pj.add(end);
+            System.out.println("-> P"+j+" = "+end);
         }
         return comp;
     }
@@ -164,35 +193,32 @@ public class ABS {
 
         // check j elements (∀j ∈ [t]):
         for (int j=1; j<t+1; j++) {
-            Element Gt_result = pubParam.Gt.newOneElement();
+            Element lhs = pubParam.Gt.newZeroElement();
             for (int i=1; i<l+1; i++) {
-                Element a = sign.Si.get(i);                                         // Si
-                Element b = pubParam.B.get(j).duplicate().powZn(msp.u.get(i-1));    // B_j^(u(i))
-                b.mul(pubParam.A.get(j));                                           // A_j * B_j^(u(i))
-                b.pow(BigInteger.valueOf(msp.M[i-1][j-1]));                         // (A_j * B_j^(u(i)))^(Mij)
-                Gt_result.mul(pubParam.pairing.pairing(a, b));                      // Π e(a, b)
+                Element a = sign.Si.get(i).duplicate();                 // S_i
+                Element b = pubParam.B.get(j).duplicate();              // B_j
+                b.powZn(msp.u.get(i-1));                                // B_j^(u(i))
+                b.mul(pubParam.A.get(j));                               // A_j * B_j^(u(i))
+                // XXX BUG: pow() does not support negative BigInteger, use Zr.newElement() instead XXX
+                b.powZn(pubParam.Zr.newElement(msp.M[i-1][j-1]));       // (A_j * B_j^(u(i)))^(Mij)
+                //b.pow(BigInteger.valueOf(msp.M[i-1][j-1]));             // (A_j * B_j^(u(i)))^(Mij)
+                lhs.mul(pubParam.pairing.pairing(a, b));                // Π e(S_i, (A_j * B_j^(u(i)))^(Mij))
             }
 
-            Element cgu = pubParam.C.duplicate();                                   // C
-            cgu.mul(pubParam.g.duplicate().powZn(msp.mu));                          // C * (g^µ)
-            Element rhs = pubParam.pairing.pairing(cgu, sign.Pj.get(j));            // e(Cg^µ, Pj)
+            Element cgu = pubParam.g.duplicate();                               // g
+            cgu.powZn(msp.mu);                                                  // g^µ
+            cgu.mul(pubParam.C);                                                // C * g^µ
+            Element rhs = pubParam.pairing.pairing(cgu, sign.Pj.get(j));        // e(Cg^µ, Pj)
             if (j == 1) {
-                rhs.mul(pubParam.pairing.pairing(sign.Y, pubParam.hi.get(j)));      // e(Y, hj) * e(Cg^µ, Pj)
+                rhs.mul(pubParam.pairing.pairing(sign.Y, pubParam.hi.get(j)));  // e(Y, hj) * e(Cg^µ, Pj)
             }
-            if (!Gt_result.isEqual(rhs)) {
+
+            if (!lhs.isEqual(rhs)) {
                 System.out.println("Mismatch for j = "+j+" case...");
-                //return false;
+                return false;
             }
         }
         return true;
-    }
-
-    // ======================= Utilities Functions Below =======================
-    public static void elementFromString(Element h, String s)   // FIXME: MSP also using
-            throws NoSuchAlgorithmException {
-        MessageDigest md = MessageDigest.getInstance("SHA-1");
-        byte[] digest = md.digest(s.getBytes());
-        h.setFromHash(digest, 0, digest.length);
     }
 
 }
